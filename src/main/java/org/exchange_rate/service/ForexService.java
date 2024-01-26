@@ -9,8 +9,9 @@ import org.exchange_rate.repository.ForexRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 @Service
@@ -19,7 +20,8 @@ public class ForexService {
     @Autowired
     ForexRepository forexRepository;
 
-    public ForexResp queryExchangeRate(ForexRequest request, String currency){
+    public ForexResp queryExchangeRate(ForexRequest request){
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 
         try {
             //打台幣API 輸入幣別美金 查詢 usd to ntd
@@ -28,21 +30,42 @@ public class ForexService {
             //將請求參數 時間 進行處理
             //1. 時間格式 yyyy/MM/dd 轉換 yyyy-MM-dd
             //2. 結束時間 轉換成 LocalDate ，並減去一天，再還原成字串
-            String startDatestr = request.getStartDate().replaceAll("/", "-");
-            String endDatestr = request.getEndDate().replaceAll("/", "-");
+            String startDateStr = request.getStartDate().replaceAll("/", "-");
+            String endDateStr = request.getEndDate().replaceAll("/", "-");
 
-            LocalDate startDate = LocalDate.parse(startDatestr);
-            LocalDate endDate = LocalDate.parse(endDatestr).minusDays(1);
+            Date startDate = sdf.parse(startDateStr);
+            Date endDate = sdf.parse(endDateStr);
 
-            if (endDate.isBefore(startDate)){
+            //比較開始日期跟結束日期是否超過一年以上
+            long interval = getInterval(startDate, endDate);
+
+            if (sdf.format(endDate).equals(sdf.format(new Date()))){
 
                 BaseResponse.RespHead respHead = new BaseResponse.RespHead();
                 ForexResp resp = new ForexResp();
 
                 respHead.setRespHead(RespStateEnum.ERROR.getCode(), RespStateEnum.ERROR.getMsg());
-
                 resp.setError(respHead);
-                System.out.println("2131231");
+
+                return resp;
+            } else if (endDate.before(startDate)){
+
+                BaseResponse.RespHead respHead = new BaseResponse.RespHead();
+                ForexResp resp = new ForexResp();
+
+                respHead.setRespHead(RespStateEnum.ERROR.getCode(), RespStateEnum.ERROR.getMsg());
+                resp.setError(respHead);
+
+                return resp;
+
+            } else if (interval >= 365) {
+
+                BaseResponse.RespHead respHead = new BaseResponse.RespHead();
+                ForexResp resp = new ForexResp();
+
+                respHead.setRespHead(RespStateEnum.ERROR.getCode(), RespStateEnum.ERROR.getMsg());
+                resp.setError(respHead);
+
                 return resp;
 
             }
@@ -50,7 +73,7 @@ public class ForexService {
             List<CollectionEntity> collectionEntities = forexRepository.queryByStartDateAndEndDate(startDate, endDate);
 
             //判斷API 查詢幣別 針對 外匯幣別 進行篩選
-            List<ForexResp.CurrencyItem> currencyItems = filterForex(collectionEntities, request, currency);
+            List<ForexResp.CurrencyItem> currencyItems = filterForex(collectionEntities, request);
 
             BaseResponse.RespHead respHead = new BaseResponse.RespHead();
             ForexResp resp = new ForexResp();
@@ -75,17 +98,12 @@ public class ForexService {
         }
     }
 
-    private List<ForexResp.CurrencyItem> filterForex(List<CollectionEntity> collectionEntityList, ForexRequest request, String currency){
+    private List<ForexResp.CurrencyItem> filterForex(List<CollectionEntity> collectionEntityList, ForexRequest request){
         List<ForexResp.CurrencyItem> list = new ArrayList<>();
         for (CollectionEntity simpleResult : collectionEntityList) {
 
             ForexResp.CurrencyItem item = new ForexResp.CurrencyItem();
 
-            if ("usd".equals(request.getCurrency())) {
-                item.setUsd(simpleResult.getUsdToNtd());
-            }
-
-            if ("twd".equals(currency)) {
                 switch (request.getCurrency()){
                     case "usd":
                         item.setDate(simpleResult.getDate());
@@ -96,59 +114,22 @@ public class ForexService {
                         item.setRbm(simpleResult.getRmbToNtd());
                         break;
                 }
-            }
-
-            if ("usd".equals(currency)) {
-                switch (request.getCurrency()){
-                    case "eur":
-                        item.setDate(simpleResult.getDate());
-                        item.setEur(simpleResult.getEurToUsd());
-                        break;
-                    case "gpb":
-                        item.setDate(simpleResult.getDate());
-                        item.setGbp(simpleResult.getGbpToUsd());
-                        break;
-                    case "aup":
-                        item.setDate(simpleResult.getDate());
-                        item.setAup(simpleResult.getAupToUsd());
-                        break;
-                    case "nzd":
-                        item.setDate(simpleResult.getDate());
-                        item.setNzd(simpleResult.getNzdToUsd());
-                        break;
-                }
-            }
-
-            if ("jpy".equals(currency)) {
-                switch (request.getCurrency()){
-                    case "usd":
-                        item.setDate(simpleResult.getDate());
-                        item.setUsd(simpleResult.getUsdToJpy());
-                        break;
-                }
-            }
-
-            if ("rmb".equals(currency)) {
-                switch (request.getCurrency()) {
-                    case "usd" :
-                        item.setDate(simpleResult.getDate());
-                        item.setUsd(simpleResult.getUsdToRmb());
-                        break;
-                }
-            }
-
-            if ("zar".equals(currency)) {
-                switch (request.getCurrency()) {
-                    case "usd" :
-                        item.setDate(simpleResult.getDate());
-                        item.setUsd(simpleResult.getUsdToZar());
-                        break;
-                }
-            }
 
             list.add(item);
         }
         return list;
+    }
+
+    /**
+     * 判斷開始日期、結束日期 的 間隔時間
+     * @param startDate
+     * @param endDate
+     * @return
+     */
+    private long getInterval(Date startDate, Date endDate){
+        long day = 0;
+        day = endDate.getTime() - startDate.getTime();
+        return day / (24 * 60 * 60 * 1000);
     }
 
 }
